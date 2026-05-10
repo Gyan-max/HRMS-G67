@@ -13,6 +13,7 @@ All ML models are initialized on startup and trained on synthetic data
 if no pre-trained models are found.
 """
 
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -31,6 +32,7 @@ from sqlalchemy.orm import Session
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from database import create_tables, get_db
+from logging_config import configure_logging
 from schemas import (
     CheckInRequest,
     CheckInResponse,
@@ -55,6 +57,10 @@ from nlp_analyzer import MentalHealthNLPAnalyzer
 from anomaly_detector import BehavioralAnomalyDetector
 from risk_classifier import RiskClassifier
 from risk_engine import RiskScoringEngine
+from safety_screen import run_safety_screen
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Global ML component instances (initialized once on startup)
@@ -81,12 +87,16 @@ def _train_models_if_needed():
     )
 
     if not os.path.exists(synthetic_data_path):
-        print("[Startup] No synthetic training data found. Models will use fallback mode.")
-        print(f"[Startup] Expected path: {synthetic_data_path}")
-        print("[Startup] Run `python data/generate_synthetic_data.py` to create training data.")
+        logger.warning(
+            "No synthetic training data found at %s; models will use fallback mode.",
+            synthetic_data_path,
+        )
+        logger.warning(
+            "Run `python data/generate_synthetic_data.py` to create training data."
+        )
         return
 
-    print("[Startup] Loading synthetic training data...")
+    logger.info("Loading synthetic training data...")
     data = pd.read_csv(synthetic_data_path)
 
     feature_cols = get_feature_names()
@@ -94,7 +104,7 @@ def _train_models_if_needed():
     available_cols = [c for c in feature_cols if c in data.columns]
 
     if not available_cols:
-        print("[Startup] Warning: No matching feature columns in synthetic data.")
+        logger.warning("No matching feature columns in synthetic data.")
         return
 
     X = data[available_cols]
@@ -102,15 +112,15 @@ def _train_models_if_needed():
 
     # Train anomaly detector if not already fitted
     if not anomaly_detector.is_fitted:
-        print("[Startup] Training anomaly detector on synthetic data...")
+        logger.info("Training anomaly detector on synthetic data...")
         result = anomaly_detector.fit(X)
-        print(f"[Startup] Anomaly detector: {result}")
+        logger.info("Anomaly detector: %s", result)
 
     # Train risk classifier if not already fitted
     if y is not None and not risk_classifier.is_fitted:
-        print("[Startup] Training risk classifier on synthetic data...")
+        logger.info("Training risk classifier on synthetic data...")
         result = risk_classifier.train(X, y)
-        print(f"[Startup] Risk classifier: {result}")
+        logger.info("Risk classifier: %s", result)
 
 
 # ---------------------------------------------------------------------------
@@ -124,38 +134,35 @@ async def lifespan(app: FastAPI):
     """
     global nlp_analyzer, anomaly_detector, risk_classifier, risk_engine, models_loaded
 
-    print("=" * 60)
-    print("  Behavioral Health Risk Monitor — Starting Up")
-    print("=" * 60)
+    logger.info("Behavioral Health Risk Monitor — starting up")
 
     # Step 1: Create database tables
-    print("[Startup] Initializing database...")
+    logger.info("Initialising database...")
     create_tables()
 
     # Step 2: Initialize ML components
-    print("[Startup] Loading NLP analyzer...")
+    logger.info("Loading NLP analyzer...")
     nlp_analyzer = MentalHealthNLPAnalyzer()
 
-    print("[Startup] Loading anomaly detector...")
+    logger.info("Loading anomaly detector...")
     anomaly_detector = BehavioralAnomalyDetector()
 
-    print("[Startup] Loading risk classifier...")
+    logger.info("Loading risk classifier...")
     risk_classifier = RiskClassifier()
 
-    print("[Startup] Initializing risk scoring engine...")
+    logger.info("Initialising risk scoring engine...")
     risk_engine = RiskScoringEngine()
 
     # Step 3: Train models if no saved models found
     _train_models_if_needed()
 
     models_loaded = True
-    print("[Startup] ✅ All components initialized successfully!")
-    print("=" * 60)
+    logger.info("All components initialised successfully")
 
     yield  # Application runs
 
     # Shutdown
-    print("[Shutdown] Behavioral Health Risk Monitor stopped.")
+    logger.info("Behavioral Health Risk Monitor stopped")
 
 
 # ---------------------------------------------------------------------------
@@ -172,12 +179,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow all origins for local development with Streamlit frontend
+# ---------------------------------------------------------------------------
+# CORS configuration.
+#
+# The previous configuration combined `allow_origins=["*"]` with
+# `allow_credentials=True`, which is invalid per the CORS spec — browsers
+# refuse credentialed requests against a wildcard origin. We now allow a
+# specific list of origins (overridable via the BHRM_CORS_ORIGINS env var,
+# comma-separated) and only enable credentials when the origins are
+# concrete.
+# ---------------------------------------------------------------------------
+_default_origins = "http://localhost:8501,http://127.0.0.1:8501"
+_cors_origins_env = os.environ.get("BHRM_CORS_ORIGINS", _default_origins)
+_cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+_allow_credentials = "*" not in _cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=_cors_origins,
+    allow_credentials=_allow_credentials,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -246,16 +267,31 @@ async def submit_checkin(request: CheckInRequest, db: Session = Depends(get_db))
     features_dict = features_df.iloc[0].to_dict() if len(features_df) > 0 else {}
 
     # ------------------------------------------------------------------
-    # Step 3: NLP analysis on journal text
+    # Step 3a: Safety screen — runs BEFORE the weighted scorer so that
+    # explicit suicidal-ideation / self-harm content can force HIGH
+    # regardless of how the other signals balance out.
+    # ------------------------------------------------------------------
+    safety_result = run_safety_screen(request.journal_text)
+    if safety_result.triggered:
+        logger.warning(
+            "checkin.safety_triggered user=%s phrases=%s",
+            request.user_id,
+            safety_result.matched_phrases,
+        )
+
+    # ------------------------------------------------------------------
+    # Step 3b: NLP analysis on journal text
     # ------------------------------------------------------------------
     nlp_result = nlp_analyzer.analyze(request.journal_text)
     nlp_risk = nlp_result.get("nlp_risk_score", 0.0)
+    nlp_available = nlp_result.get("status") == "analyzed"
 
     # ------------------------------------------------------------------
     # Step 4: Anomaly detection
     # ------------------------------------------------------------------
     anomaly_result = anomaly_detector.detect(features_df)
     anomaly_risk = anomaly_result.get("normalized_risk", 0.0)
+    anomaly_available = anomaly_result.get("status") == "analyzed"
 
     # ------------------------------------------------------------------
     # Step 5: ML classifier prediction (may return None if not trained)
@@ -263,16 +299,25 @@ async def submit_checkin(request: CheckInRequest, db: Session = Depends(get_db))
     ml_prediction = risk_classifier.predict(features_df)
 
     # ------------------------------------------------------------------
-    # Step 6: Rule-based weighted risk scoring
+    # Step 6: Rule-based weighted risk scoring (with safety override and
+    # weight re-normalisation when components are unavailable).
     # ------------------------------------------------------------------
     risk_result = risk_engine.compute_final_risk(
         nlp_score=nlp_risk,
         anomaly_score=anomaly_risk,
         features_dict=features_dict,
+        nlp_available=nlp_available,
+        anomaly_available=anomaly_available,
+        safety_override=safety_result.triggered,
+        safety_matched_phrases=safety_result.matched_phrases,
     )
 
+    # If the safety screen triggered, never let ML blending downgrade the
+    # decision — we already pinned risk to HIGH and want to preserve that.
+    safety_override_active = safety_result.triggered
+
     # If ML classifier is available, blend its output with rule-based score
-    if ml_prediction is not None:
+    if ml_prediction is not None and not safety_override_active:
         ml_risk_score = ml_prediction["probabilities"].get("HIGH", 0.0) * 0.5 + \
                         ml_prediction["probabilities"].get("MEDIUM", 0.0) * 0.25
         # Blend: 60% rule-based, 40% ML
@@ -318,6 +363,7 @@ async def submit_checkin(request: CheckInRequest, db: Session = Depends(get_db))
         days_tracked=days,
         dominant_factor=risk_result.get("dominant_factor"),
         color_code=risk_result.get("color_code"),
+        safety_override=bool(risk_result.get("safety_override", False)),
     )
 
 

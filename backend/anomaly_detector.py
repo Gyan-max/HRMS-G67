@@ -7,13 +7,17 @@ shifts (e.g., drastic sleep change, social withdrawal) that aren't
 captured by gradual trend analysis.
 """
 
+import logging
 import os
+from typing import Any, Dict
+
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
-from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
 
 # Directory for persisting trained models
 MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
@@ -62,7 +66,7 @@ class BehavioralAnomalyDetector:
                 self.scaler = joblib.load(ANOMALY_SCALER_PATH)
                 self.is_fitted = True
             except Exception as e:
-                print(f"[AnomalyDetector] Warning: Could not load saved models: {e}")
+                logger.warning("Could not load saved anomaly models: %s", e)
                 self.is_fitted = False
 
     def fit(self, features_df: pd.DataFrame) -> Dict[str, Any]:
@@ -178,7 +182,7 @@ class BehavioralAnomalyDetector:
 
         except Exception as e:
             # Never crash the pipeline — return safe defaults on error
-            print(f"[AnomalyDetector] Error during detection: {e}")
+            logger.exception("Error during anomaly detection: %s", e)
             return {
                 "is_anomaly": False,
                 "anomaly_score": 0.0,

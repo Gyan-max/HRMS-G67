@@ -12,16 +12,20 @@ A full-featured interactive dashboard with:
 """
 
 import datetime
-import requests
+import os
+
 import pandas as pd
-import plotly.graph_objects as go
 import plotly.express as px
+import plotly.graph_objects as go
+import requests
 import streamlit as st
 
 # ===========================================================================
 # CONFIGURATION
 # ===========================================================================
-API_BASE_URL = "http://localhost:8000"
+# API base URL is configurable via the BHRM_API_BASE_URL env var so the
+# frontend can point at remote / containerised backends without code edits.
+API_BASE_URL = os.environ.get("BHRM_API_BASE_URL", "http://localhost:8000")
 
 st.set_page_config(
     page_title="🧠 BH Risk Monitor",
@@ -141,6 +145,42 @@ st.markdown("""
         border: 1px dashed rgba(255,255,255,0.15);
         text-align: center;
         margin: 30px 0;
+    }
+
+    /* Crisis banner — shown prominently above the assessment when the
+       safety screen has triggered or the risk level is HIGH. Designed to
+       be impossible to miss without being garish; sticks to the top of
+       the assessment area so users in crisis see resources first. */
+    .crisis-banner {
+        padding: 22px 24px;
+        border-radius: 14px;
+        margin: 0 0 20px 0;
+        background: linear-gradient(135deg, rgba(255,68,68,0.18), rgba(255,68,68,0.08));
+        border: 2px solid #ff4444;
+        box-shadow: 0 8px 32px rgba(255,68,68,0.18);
+        color: #ffe6e6;
+    }
+    .crisis-banner h3 {
+        margin: 0 0 8px 0;
+        color: #ff7777;
+        font-size: 1.15rem;
+    }
+    .crisis-banner p {
+        margin: 6px 0;
+        line-height: 1.5;
+        font-size: 0.95rem;
+    }
+    .crisis-banner ul {
+        margin: 8px 0 0 0;
+        padding-left: 22px;
+    }
+    .crisis-banner li {
+        margin: 4px 0;
+        font-size: 0.95rem;
+    }
+    .crisis-banner a {
+        color: #ffaaaa;
+        text-decoration: underline;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -366,6 +406,45 @@ with tab1:
         anomaly_detected = result.get("anomaly_detected", False)
         dominant_factor = result.get("dominant_factor", "N/A")
         color_code = result.get("color_code", "#00cc66")
+        safety_override = bool(result.get("safety_override", False))
+
+        # ---------------------------------------------------------------
+        # Crisis banner — ALWAYS rendered above everything else when the
+        # risk is HIGH or the safety screen triggered. We deliberately
+        # avoid burying crisis resources behind an expander in this state.
+        # ---------------------------------------------------------------
+        if safety_override or risk_level == "HIGH":
+            heading = (
+                "🚨 We're concerned about what you've shared"
+                if safety_override
+                else "🚨 Your check-in indicates HIGH risk — please reach out"
+            )
+            opening = (
+                "Your journal entry contains language that suggests you may be "
+                "struggling with thoughts of self-harm. You are not alone, and "
+                "help is available right now."
+                if safety_override
+                else "Several signals from your check-in suggest you may be "
+                "struggling. Please consider reaching out to someone you trust "
+                "or a crisis line today."
+            )
+            st.markdown(
+                f"""
+                <div class="crisis-banner" role="alert" aria-live="assertive">
+                    <h3>{heading}</h3>
+                    <p>{opening}</p>
+                    <ul>
+                        <li>🇮🇳 <b>iCall</b> — 9152987821 (Mon–Sat, 8am–10pm)</li>
+                        <li>🇮🇳 <b>AASRA</b> — 9820466726 (24/7)</li>
+                        <li>🇺🇸 <b>988 Suicide &amp; Crisis Lifeline</b> — call or text 988</li>
+                        <li>🇬🇧 <b>Samaritans</b> — 116 123</li>
+                    </ul>
+                    <p style="margin-top:10px;"><b>If you are in immediate danger,
+                    please call your local emergency services.</b></p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         # ---------------------------------------------------------------
         # Risk Badge (centered, large)
