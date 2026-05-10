@@ -61,3 +61,7 @@ echo ""
 cd "$PROJECT_DIR/frontend"
 streamlit run dashboard.py --server.port 8501 --server.address 0.0.0.0 --server.headless true --browser.gatherUsageStats false
 
+# 4. Start next.js frontend
+echo "🎨 Starting Next.js frontend (port 3000)..."
+cd "$PROJECT_DIR/frontend-next"
+npm run dev -- --host 0.0.0.0 --port 3000 > /dev/null 2>&1 &

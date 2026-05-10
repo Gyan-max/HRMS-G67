@@ -72,6 +72,26 @@ risk_engine: Optional[RiskScoringEngine] = None
 models_loaded: bool = False
 
 
+def _enrich_features_with_nlp(
+    features_df: pd.DataFrame,
+    nlp_result: dict,
+) -> pd.DataFrame:
+    """
+    Add NLP feature columns expected by external 20-feature models.
+
+    The legacy in-repo models use only engineered behavioral features, while
+    externally trained artifacts in /data may also require NLP-derived columns.
+    """
+    enriched = features_df.copy()
+    enriched["nlp_risk_score"] = float(nlp_result.get("nlp_risk_score", 0.0) or 0.0)
+    enriched["first_person_ratio"] = float(nlp_result.get("first_person_ratio", 0.0) or 0.0)
+    enriched["absolutist_ratio"] = float(nlp_result.get("absolutist_ratio", 0.0) or 0.0)
+    enriched["negative_emotion_ratio"] = float(
+        nlp_result.get("negative_emotion_ratio", 0.0) or 0.0
+    )
+    return enriched
+
+
 def _train_models_if_needed():
     """
     Train ML models on synthetic data if no saved models exist.
@@ -285,18 +305,19 @@ async def submit_checkin(request: CheckInRequest, db: Session = Depends(get_db))
     nlp_result = nlp_analyzer.analyze(request.journal_text)
     nlp_risk = nlp_result.get("nlp_risk_score", 0.0)
     nlp_available = nlp_result.get("status") == "analyzed"
+    model_features_df = _enrich_features_with_nlp(features_df, nlp_result)
 
     # ------------------------------------------------------------------
     # Step 4: Anomaly detection
     # ------------------------------------------------------------------
-    anomaly_result = anomaly_detector.detect(features_df)
+    anomaly_result = anomaly_detector.detect(model_features_df)
     anomaly_risk = anomaly_result.get("normalized_risk", 0.0)
     anomaly_available = anomaly_result.get("status") == "analyzed"
 
     # ------------------------------------------------------------------
     # Step 5: ML classifier prediction (may return None if not trained)
     # ------------------------------------------------------------------
-    ml_prediction = risk_classifier.predict(features_df)
+    ml_prediction = risk_classifier.predict(model_features_df)
 
     # ------------------------------------------------------------------
     # Step 6: Rule-based weighted risk scoring (with safety override and

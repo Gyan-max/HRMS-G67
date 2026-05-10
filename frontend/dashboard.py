@@ -609,6 +609,57 @@ def get_rec_class(level: str) -> str:
     return {"HIGH": "rec-high", "MEDIUM": "rec-medium", "LOW": "rec-low"}.get(level, "rec-low")
 
 
+def render_assessment_remark(risk_level: str, risk_score: float) -> None:
+    """Render a top remark for today's prediction."""
+    if risk_level == "HIGH":
+        st.error(
+            f"Remark: Today's prediction is HIGH risk ({risk_score:.2f}). "
+            "Please prioritise support and follow the recommendation below."
+        )
+    elif risk_level == "MEDIUM":
+        st.warning(
+            f"Remark: Today's prediction is MEDIUM risk ({risk_score:.2f}). "
+            "Early signs are present — small corrective steps today can help."
+        )
+    else:
+        st.success(
+            f"Remark: Today's prediction is LOW risk ({risk_score:.2f}). "
+            "Keep your current healthy routines consistent."
+        )
+
+
+def render_trend_remark(risk_df: pd.DataFrame) -> None:
+    """Render a top remark for 7-day trend based on recent predictions."""
+    if len(risk_df) == 0:
+        st.info("Remark: No risk predictions are available yet for trend remarks.")
+        return
+
+    latest = risk_df.iloc[-1]
+    first = risk_df.iloc[0]
+    latest_score = float(latest["risk_score"])
+    latest_level = str(latest.get("risk_level") or "LOW").upper()
+    avg_score = float(risk_df["risk_score"].mean())
+    delta = latest_score - float(first["risk_score"])
+
+    if delta > 0.05:
+        direction = "worsening"
+    elif delta < -0.05:
+        direction = "improving"
+    else:
+        direction = "stable"
+
+    message = (
+        f"Remark: 7-day prediction summary — latest: {latest_level} ({latest_score:.2f}), "
+        f"average: {avg_score:.2f}, trend: {direction}."
+    )
+    if latest_level == "HIGH":
+        st.error(message)
+    elif latest_level == "MEDIUM":
+        st.warning(message)
+    else:
+        st.success(message)
+
+
 # ===========================================================================
 # PLOTLY CHART THEME (dark-friendly, aligned with the new palette)
 # ===========================================================================
@@ -1247,7 +1298,8 @@ def render_dashboard() -> None:
 
     # ----- Sidebar form --------------------------------------------
     submitted = False
-    user_id = "user_001"
+    user_id = st.session_state.get("active_user_id", "user_001")
+    latest_results_by_user = st.session_state.setdefault("latest_results_by_user", {})
 
     with st.sidebar:
         st.markdown(
@@ -1265,9 +1317,10 @@ def render_dashboard() -> None:
 
         user_id = st.text_input(
             "User ID",
-            value="user_001",
+            value=user_id,
             help="Unique identifier — keeps your history separate from other users.",
         )
+        st.session_state["active_user_id"] = user_id
 
         st.markdown("---")
 
@@ -1328,7 +1381,7 @@ def render_dashboard() -> None:
             with st.spinner("Running high-risk demo assessment…"):
                 demo_result = api_call("post", "/api/checkin", json=demo_payload)
             if demo_result:
-                st.session_state["latest_result"] = demo_result
+                latest_results_by_user[user_id] = demo_result
                 st.success("Demo check-in submitted.")
                 st.rerun()
 
@@ -1349,7 +1402,7 @@ def render_dashboard() -> None:
         with st.spinner("Analyzing your check-in with the ML pipeline…"):
             result = api_call("post", "/api/checkin", json=payload)
         if result:
-            st.session_state["latest_result"] = result
+            latest_results_by_user[user_id] = result
             st.rerun()
 
     # ----- Page header ---------------------------------------------
@@ -1369,7 +1422,7 @@ def render_dashboard() -> None:
 
     # ----- Tab 1: today --------------------------------------------
     with tab1:
-        result = st.session_state.get("latest_result")
+        result = latest_results_by_user.get(user_id)
         if result:
             _render_assessment(result)
         else:
@@ -1411,6 +1464,9 @@ def _render_assessment(result: dict) -> None:
     anomaly_detected = result.get("anomaly_detected", False)
     dominant_factor = result.get("dominant_factor", "N/A")
     safety_override = bool(result.get("safety_override", False))
+
+    # Top remark for today's prediction.
+    render_assessment_remark(risk_level, risk_score)
 
     # Crisis banner above everything when HIGH or safety override
     if safety_override or risk_level == "HIGH":
@@ -1538,6 +1594,10 @@ def _render_trends(user_id: str) -> None:
     df = pd.DataFrame(history["records"])
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df.sort_values("timestamp")
+    risk_df = df[df["risk_score"].notna()].copy()
+
+    # Top remark for 7-day predictions.
+    render_trend_remark(risk_df)
 
     # Mood
     fig_mood = go.Figure()
@@ -1590,7 +1650,6 @@ def _render_trends(user_id: str) -> None:
     st.plotly_chart(fig_social, use_container_width=True)
 
     # Risk
-    risk_df = df[df["risk_score"].notna()].copy()
     if len(risk_df) > 0:
         fig_risk = go.Figure()
         fig_risk.add_hrect(y0=0.65, y1=1.0, fillcolor="rgba(244,63,94,0.08)",

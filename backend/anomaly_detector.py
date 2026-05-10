@@ -22,9 +22,13 @@ logger = logging.getLogger(__name__)
 # Directory for persisting trained models
 MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
 os.makedirs(MODELS_DIR, exist_ok=True)
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 ANOMALY_MODEL_PATH = os.path.join(MODELS_DIR, "anomaly_model.pkl")
 ANOMALY_SCALER_PATH = os.path.join(MODELS_DIR, "anomaly_scaler.pkl")
+DATA_ANOMALY_MODEL_PATH = os.path.join(DATA_DIR, "anomaly_detector.pkl")
+DATA_ANOMALY_SCALER_PATH = os.path.join(DATA_DIR, "anomaly_scaler.pkl")
 
 
 class BehavioralAnomalyDetector:
@@ -59,14 +63,31 @@ class BehavioralAnomalyDetector:
         self.scaler = None
         self.is_fitted = False
 
-        # Attempt to load previously trained models
-        if os.path.exists(ANOMALY_MODEL_PATH) and os.path.exists(ANOMALY_SCALER_PATH):
+        # Prefer externally trained artifacts in /data, then fall back to /models.
+        candidate_pairs = [
+            (DATA_ANOMALY_MODEL_PATH, DATA_ANOMALY_SCALER_PATH),
+            (ANOMALY_MODEL_PATH, ANOMALY_SCALER_PATH),
+        ]
+        for model_path, scaler_path in candidate_pairs:
+            if not (os.path.exists(model_path) and os.path.exists(scaler_path)):
+                continue
             try:
-                self.model = joblib.load(ANOMALY_MODEL_PATH)
-                self.scaler = joblib.load(ANOMALY_SCALER_PATH)
+                self.model = joblib.load(model_path)
+                self.scaler = joblib.load(scaler_path)
                 self.is_fitted = True
+                logger.info(
+                    "Loaded anomaly artifacts from model=%s scaler=%s",
+                    model_path,
+                    scaler_path,
+                )
+                break
             except Exception as e:
-                logger.warning("Could not load saved anomaly models: %s", e)
+                logger.warning(
+                    "Could not load anomaly artifacts model=%s scaler=%s: %s",
+                    model_path,
+                    scaler_path,
+                    e,
+                )
                 self.is_fitted = False
 
     def fit(self, features_df: pd.DataFrame) -> Dict[str, Any]:
