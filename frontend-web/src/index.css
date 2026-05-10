@@ -1,0 +1,95 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Sentinel design tokens (HSL channels for shadcn token compatibility)
+   Dark-only palette — base navy + indigo / cyan accents.
+   --------------------------------------------------------------------------- */
+@layer base {
+  :root {
+    --background: 222 39% 6%;
+    --foreground: 213 31% 91%;
+
+    --card: 220 28% 9%;
+    --card-foreground: 213 31% 91%;
+
+    --primary: 239 84% 67%;             /* indigo-500 */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 18% 16%;
+    --secondary-foreground: 213 31% 91%;
+
+    --muted: 220 18% 16%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 187 92% 54%;              /* cyan-400 */
+    --accent-foreground: 222 39% 6%;
+
+    --destructive: 351 95% 60%;         /* rose-500 */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 14% 16%;
+    --input: 220 14% 16%;
+    --ring: 239 84% 67%;
+
+    --radius: 0.875rem;
+  }
+
+  html,
+  body,
+  #root {
+    @apply min-h-screen;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: theme("fontFamily.sans");
+    background-image: theme("backgroundImage.grad-page");
+    background-attachment: fixed;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5 {
+    font-family: theme("fontFamily.display");
+    @apply tracking-tight;
+  }
+
+  /* Hide focus ring globally; reintroduce per-component for keyboard users */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  ::selection {
+    background: rgba(99, 102, 241, 0.35);
+    color: #fff;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Reusable utility classes
+   --------------------------------------------------------------------------- */
+@layer components {
+  .glass-card {
+    @apply rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-md;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.05) inset,
+      0 20px 40px -20px rgba(0, 0, 0, 0.6);
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-cyan;
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, #22d3ee 0%, #6366f1 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}

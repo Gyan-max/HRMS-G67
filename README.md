@@ -55,9 +55,10 @@ An intelligent system that monitors subtle daily behavioral signals (sleep, mood
 | NLP Model          | distilbert-base-uncased-finetuned-sst-2-english   |
 | Anomaly Detection  | Isolation Forest (scikit-learn)                   |
 | Risk Classification| XGBoost Classifier                                |
-| Frontend           | Streamlit + Plotly                                |
+| Frontend (legacy)  | Streamlit + Plotly (live dashboard)               |
+| Frontend (new)     | React 19 + Vite + TypeScript + Tailwind + shadcn  |
 | Data Storage       | SQLite via SQLAlchemy                             |
-| Language           | Python 3.10+                                      |
+| Language           | Python 3.10+ · TypeScript 5+                      |
 
 ---
 
@@ -76,7 +77,11 @@ behavioral-health-monitor/
 │   ├── risk_engine.py             # Weighted risk scoring + recommendations
 │   └── schemas.py                 # Pydantic request/response models
 ├── frontend/
-│   └── dashboard.py               # Streamlit dashboard with Plotly charts
+│   └── dashboard.py               # Streamlit dashboard with Plotly charts (legacy)
+├── frontend-web/                  # React + Vite + Tailwind landing experience (new)
+│   ├── src/                       # Pages, layout, UI primitives, design tokens
+│   ├── package.json
+│   └── README.md                  # Frontend-specific setup + deploy notes
 ├── data/
 │   ├── generate_synthetic_data.py # Synthetic training data generator
 │   └── synthetic_training_data.csv # Generated training data (500 samples)
@@ -135,15 +140,26 @@ Or start components individually:
 # Terminal 1: Backend
 cd backend && uvicorn main:app --reload --port 8000
 
-# Terminal 2: Frontend
+# Terminal 2: Frontend (legacy Streamlit dashboard)
 cd frontend && streamlit run dashboard.py --server.port 8501
+
+# Terminal 3 (optional): React landing pages (Vite dev server, port 5173)
+cd frontend-web && npm install && npm run dev
 ```
 
 ### 6. Access the Application
 
-- **Dashboard**: http://localhost:8501
+- **React landing pages** (PR A): http://localhost:5173
+- **Streamlit dashboard** (live check-ins, trends, history): http://localhost:8501
 - **API Docs**: http://localhost:8000/docs
 - **Health Check**: http://localhost:8000/health
+
+> The new React frontend (`frontend-web/`) currently hosts the
+> branded landing pages (Home / About / Solution / Resources). The
+> Streamlit dashboard remains the source of truth for live check-ins
+> until PR B ports the dashboard over. See
+> [`frontend-web/README.md`](frontend-web/README.md) for setup and
+> Vercel deploy instructions.
 
 ---
 
