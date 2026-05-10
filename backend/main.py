@@ -189,7 +189,7 @@ app = FastAPI(
 # comma-separated) and only enable credentials when the origins are
 # concrete.
 # ---------------------------------------------------------------------------
-_default_origins = "http://localhost:8501,http://127.0.0.1:8501"
+_default_origins = "http://localhost:8501,http://127.0.0.1:8501,http://localhost:5173,http://127.0.0.1:5173"
 _cors_origins_env = os.environ.get("BHRM_CORS_ORIGINS", _default_origins)
 _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
 _allow_credentials = "*" not in _cors_origins

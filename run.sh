@@ -15,63 +15,49 @@
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -d "$PROJECT_DIR/venv" ]; then
+    source "$PROJECT_DIR/venv/bin/activate"
+fi
 
 echo "=============================================="
 echo "  🛡️  Sentinel — Behavioral Health Risk Monitor"
 echo "=============================================="
 echo ""
 
-# Make sure we tear down the backend if anything below fails or the user
-# hits Ctrl+C while Streamlit is in the foreground.
+# Cleanup background processes on exit
 cleanup() {
-    if [ -n "${BACKEND_PID:-}" ] && kill -0 "$BACKEND_PID" 2>/dev/null; then
-        echo ""
-        echo "Shutting down backend (PID: $BACKEND_PID)..."
-        kill "$BACKEND_PID" 2>/dev/null || true
-    fi
+    echo ""
+    [ -n "${BACKEND_PID:-}" ] && kill "$BACKEND_PID" 2>/dev/null || true
+    [ -n "${VITE_PID:-}" ] && kill "$VITE_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-# Check if synthetic data exists; generate if not
+# Generate data if missing
 if [ ! -f "$PROJECT_DIR/data/synthetic_training_data.csv" ]; then
     echo "📊 Generating synthetic training data..."
-    cd "$PROJECT_DIR"
-    python data/generate_synthetic_data.py
-    echo ""
+    python "$PROJECT_DIR/data/generate_synthetic_data.py"
 fi
 
-# Start FastAPI backend in background
-echo "🚀 Starting FastAPI backend on port 8000..."
+# 1. Start Backend
+echo "🚀 Starting FastAPI backend (port 8000)..."
 cd "$PROJECT_DIR/backend"
-uvicorn main:app --reload --host 0.0.0.0 --port 8000 &
+uvicorn main:app --host 0.0.0.0 --port 8000 > /dev/null 2>&1 &
 BACKEND_PID=$!
 
-# Wait for backend to initialize (model loading + DB setup)
-echo "⏳ Waiting for backend to initialize..."
+# 2. Start Vite
+echo "🎨 Starting Vite frontend (port 5173)..."
+cd "$PROJECT_DIR/frontend-web"
+npm run dev -- --host 0.0.0.0 --port 5173 > /dev/null 2>&1 &
+VITE_PID=$!
+
+echo "⏳ Initializing services..."
 sleep 5
 
-# Check if backend is running
-if ! kill -0 $BACKEND_PID 2>/dev/null; then
-    echo "❌ Backend failed to start. Check logs above."
-    exit 1
-fi
-
-echo "✅ Backend running (PID: $BACKEND_PID)"
-
-# Start Streamlit frontend.
-#   --server.headless true
-#       Skips the first-run interactive email prompt that otherwise blocks
-#       on stdin and prevents the dashboard from ever serving.
-#   --browser.gatherUsageStats false
-#       Suppresses the usage-stats opt-in (also part of the first-run flow).
-echo "🎨 Starting Streamlit dashboard on port 8501..."
-echo "   Open http://localhost:8501 in your browser once it boots."
+# 3. Start Streamlit (Foreground)
+echo "📊 Starting Streamlit Dashboard (port 8501)..."
+echo "   - React UI: http://localhost:5173"
+echo "   - Dashboard: http://localhost:8501"
+echo ""
 cd "$PROJECT_DIR/frontend"
-streamlit run dashboard.py \
-    --server.port 8501 \
-    --server.address 0.0.0.0 \
-    --server.headless true \
-    --browser.gatherUsageStats false
+streamlit run dashboard.py --server.port 8501 --server.address 0.0.0.0 --server.headless true --browser.gatherUsageStats false
 
-# Cleanup runs via the trap defined above.
-echo "Done."
