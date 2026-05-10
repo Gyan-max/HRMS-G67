@@ -6,13 +6,18 @@ from behavioral feature vectors. Acts as the ML-based risk predictor,
 complementing the rule-based RiskScoringEngine.
 """
 
+import logging
 import os
+from typing import Any, Dict, Optional
+
 import joblib
 import numpy as np
 import pandas as pd
-from xgboost import XGBClassifier
 from sklearn.preprocessing import StandardScaler
-from typing import Dict, Any, Optional
+from sklearn.utils.class_weight import compute_sample_weight
+from xgboost import XGBClassifier
+
+logger = logging.getLogger(__name__)
 
 # Directory for persisting trained models
 MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
@@ -63,7 +68,7 @@ class RiskClassifier:
                 self.scaler = joblib.load(CLASSIFIER_SCALER_PATH)
                 self.is_fitted = True
             except Exception as e:
-                print(f"[RiskClassifier] Warning: Could not load saved models: {e}")
+                logger.warning("Could not load saved classifier models: %s", e)
                 self.is_fitted = False
 
     def train(self, X_df: pd.DataFrame, y_series: pd.Series) -> Dict[str, Any]:
@@ -94,7 +99,9 @@ class RiskClassifier:
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X)
 
-        # Train XGBoost with multi-class softmax objective
+        # Train XGBoost with multi-class softmax objective.
+        # `use_label_encoder` was deprecated in xgboost 1.6 and removed in 2.x;
+        # we no longer pass it.
         self.model = XGBClassifier(
             n_estimators=200,
             max_depth=4,
@@ -102,12 +109,18 @@ class RiskClassifier:
             objective="multi:softprob",
             num_class=3,
             eval_metric="mlogloss",
-            use_label_encoder=False,
             random_state=42,
             n_jobs=-1,
             verbosity=0,
         )
-        self.model.fit(X_scaled, y)
+
+        # Class-weighted training. Real-world risk distributions are
+        # imbalanced (HIGH is rare); without weighting the model would
+        # optimise for accuracy and bias toward LOW. `compute_sample_weight`
+        # produces per-sample weights inversely proportional to class
+        # frequency so each class contributes equally to the loss.
+        sample_weights = compute_sample_weight(class_weight="balanced", y=y)
+        self.model.fit(X_scaled, y, sample_weight=sample_weights)
         self.is_fitted = True
 
         # Persist models
@@ -182,5 +195,5 @@ class RiskClassifier:
             }
 
         except Exception as e:
-            print(f"[RiskClassifier] Error during prediction: {e}")
+            logger.exception("Error during classifier prediction: %s", e)
             return None

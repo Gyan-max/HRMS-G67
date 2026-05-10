@@ -77,6 +77,15 @@ class CheckInResponse(BaseModel):
     days_tracked: int = Field(..., ge=0, description="Total days of data for this user")
     dominant_factor: Optional[str] = Field(None, description="Highest contributing risk factor")
     color_code: Optional[str] = Field(None, description="Hex color for risk level badge")
+    safety_override: bool = Field(
+        False,
+        description=(
+            "True when the safety screen detected suicidal-ideation / "
+            "self-harm content in the journal text and forced the risk "
+            "level to HIGH. The frontend should surface crisis resources "
+            "prominently when this is true."
+        ),
+    )
 
     class Config:
         json_schema_extra = {

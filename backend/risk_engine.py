@@ -5,9 +5,18 @@ Combines NLP, anomaly detection, sleep, mood, and social risk sub-scores
 into a final weighted risk assessment. Acts as the rule-based fallback
 (and complement) to the ML classifier. Generates human-readable
 recommendations based on the dominant risk factor.
+
+The engine also supports a *safety override* path: when an upstream
+safety screen flags suicidal ideation or self-harm content, the risk
+level is forced to HIGH and a crisis-resource recommendation is
+emitted, regardless of how the weighted components would otherwise
+score.
 """
 
-from typing import Dict, Any
+import logging
+from typing import Any, Dict, Iterable, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class RiskScoringEngine:
@@ -32,7 +41,11 @@ class RiskScoringEngine:
         )
     """
 
-    # Component weights — must sum to 1.0
+    # Component weights — must sum to 1.0 when ALL components are available.
+    # When some components are unavailable (e.g. no journal text → no NLP
+    # signal, or fewer than 5 days of history → no anomaly signal), the
+    # remaining weights are re-normalised so the final score is still on a
+    # 0-1 scale instead of being silently deflated.
     WEIGHTS = {
         "nlp": 0.30,
         "anomaly": 0.25,
@@ -175,8 +188,16 @@ class RiskScoringEngine:
     # MAIN RISK COMPUTATION
     # ------------------------------------------------------------------
 
-    def compute_final_risk(self, nlp_score: float, anomaly_score: float,
-                           features_dict: Dict[str, float]) -> Dict[str, Any]:
+    def compute_final_risk(
+        self,
+        nlp_score: float,
+        anomaly_score: float,
+        features_dict: Dict[str, float],
+        nlp_available: bool = True,
+        anomaly_available: bool = True,
+        safety_override: bool = False,
+        safety_matched_phrases: Optional[Iterable[str]] = None,
+    ) -> Dict[str, Any]:
         """
         Compute the final weighted risk assessment.
 
@@ -189,6 +210,21 @@ class RiskScoringEngine:
             anomaly_score: Anomaly normalized risk (0-1).
             features_dict: Dict of extracted behavioral features
                           (from feature_engineering.extract_features).
+            nlp_available: True iff a non-empty journal was provided AND
+                          the NLP pipeline produced a result. When False,
+                          the NLP weight is dropped and remaining weights
+                          are re-normalised.
+            anomaly_available: True iff the anomaly detector is fitted
+                          AND produced an analysed result. When False,
+                          the anomaly weight is dropped and remaining
+                          weights are re-normalised.
+            safety_override: When True, the safety screen has flagged
+                          self-harm / suicidal-ideation content and the
+                          final risk level is forced to HIGH regardless
+                          of the weighted score.
+            safety_matched_phrases: Optional list of matched phrases
+                          from the safety screen, used to enrich the
+                          dominant_factor / recommendation.
 
         Returns:
             Comprehensive risk assessment dictionary.
@@ -212,7 +248,7 @@ class RiskScoringEngine:
         mood_score = self.mood_risk_score(avg_mood, mood_trend, mood_volatility, lowest_mood)
         social_score = self.social_risk_score(avg_social, social_trend, isolation_days)
 
-        # Assemble component scores dict
+        # Assemble component scores dict (rounded for response payloads)
         component_scores = {
             "nlp": round(nlp_score, 4),
             "anomaly": round(anomaly_score, 4),
@@ -221,14 +257,21 @@ class RiskScoringEngine:
             "social": round(social_score, 4),
         }
 
-        # Weighted sum
+        # Re-normalise weights over the components that are actually available
+        # so missing journal / insufficient history doesn't silently halve
+        # the final score for the most vulnerable users.
+        active_weights = self._active_weights(
+            nlp_available=nlp_available,
+            anomaly_available=anomaly_available,
+        )
+
         final_score = sum(
-            self.WEIGHTS[key] * component_scores[key]
-            for key in self.WEIGHTS
+            active_weights[key] * component_scores[key]
+            for key in active_weights
         )
         final_score = round(max(0.0, min(1.0, final_score)), 4)
 
-        # Determine risk level
+        # Determine risk level from the weighted score
         if final_score >= self.HIGH_THRESHOLD:
             risk_level = "HIGH"
         elif final_score >= self.MEDIUM_THRESHOLD:
@@ -238,13 +281,37 @@ class RiskScoringEngine:
 
         # Identify dominant risk factor (highest contributing component)
         weighted_contributions = {
-            key: self.WEIGHTS[key] * component_scores[key]
-            for key in self.WEIGHTS
+            key: active_weights[key] * component_scores[key]
+            for key in active_weights
         }
-        dominant_factor = max(weighted_contributions, key=weighted_contributions.get)
+        dominant_factor = (
+            max(weighted_contributions, key=weighted_contributions.get)
+            if weighted_contributions
+            else "mood"
+        )
 
-        # Generate targeted recommendation
-        recommendation = self._generate_recommendation(risk_level, dominant_factor, component_scores)
+        # ------------------------------------------------------------------
+        # SAFETY OVERRIDE: when the upstream safety screen flags suicidal
+        # ideation / self-harm content we unconditionally escalate to HIGH
+        # and emit a crisis-resource recommendation. The numeric score is
+        # bumped up to (at least) the HIGH_THRESHOLD so downstream charts
+        # and alerts agree with the categorical level.
+        # ------------------------------------------------------------------
+        if safety_override:
+            logger.warning(
+                "risk_engine.safety_override_applied phrases=%s",
+                list(safety_matched_phrases) if safety_matched_phrases else [],
+            )
+            risk_level = "HIGH"
+            final_score = max(final_score, self.HIGH_THRESHOLD)
+            dominant_factor = "safety"
+            recommendation = self._safety_override_recommendation(
+                safety_matched_phrases
+            )
+        else:
+            recommendation = self._generate_recommendation(
+                risk_level, dominant_factor, component_scores
+            )
 
         return {
             "final_score": final_score,
@@ -253,7 +320,35 @@ class RiskScoringEngine:
             "dominant_factor": dominant_factor,
             "recommendation": recommendation,
             "color_code": self.COLOR_MAP[risk_level],
+            "safety_override": bool(safety_override),
+            "active_weights": {k: round(v, 4) for k, v in active_weights.items()},
         }
+
+    @classmethod
+    def _active_weights(
+        cls,
+        nlp_available: bool = True,
+        anomaly_available: bool = True,
+    ) -> Dict[str, float]:
+        """
+        Return component weights re-normalised over only the available
+        components.
+
+        If every component is unavailable (shouldn't happen — sleep / mood /
+        social are always available because they come from the request
+        itself) we fall back to the full WEIGHTS dict to avoid division by
+        zero.
+        """
+        weights = dict(cls.WEIGHTS)
+        if not nlp_available:
+            weights.pop("nlp", None)
+        if not anomaly_available:
+            weights.pop("anomaly", None)
+
+        total = sum(weights.values())
+        if total <= 0:
+            return dict(cls.WEIGHTS)
+        return {k: v / total for k, v in weights.items()}
 
     # ------------------------------------------------------------------
     # RECOMMENDATION GENERATOR
@@ -344,3 +439,27 @@ class RiskScoringEngine:
 
         level_recs = recommendations.get(risk_level, recommendations["MEDIUM"])
         return level_recs.get(dominant_factor, level_recs.get("mood", "Please take care of yourself today."))
+
+    @staticmethod
+    def _safety_override_recommendation(
+        matched_phrases: Optional[Iterable[str]] = None,
+    ) -> str:
+        """
+        Recommendation emitted whenever the safety screen has triggered.
+
+        We deliberately do NOT echo the matched phrases back to the user —
+        seeing one's own crisis language quoted back can be retraumatising.
+        The phrases are preserved in logs / API responses for audit, but
+        the user-facing text is empathetic and action-oriented.
+        """
+        return (
+            "Your journal entry contains language that suggests you may be "
+            "experiencing thoughts of self-harm or hopelessness. You are not "
+            "alone, and help is available right now. Please reach out:\n\n"
+            "• 🇮🇳 iCall: 9152987821 (Mon-Sat, 8am-10pm)\n"
+            "• 🇮🇳 AASRA: 9820466726 (24/7)\n"
+            "• 🇺🇸 988 Suicide & Crisis Lifeline: call or text 988\n"
+            "• 🇬🇧 Samaritans: 116 123\n\n"
+            "If you are in immediate danger, please call your local emergency "
+            "services. Talking to someone can make a real difference."
+        )
