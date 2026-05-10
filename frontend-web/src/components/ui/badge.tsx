@@ -17,6 +17,8 @@ const badgeVariants = cva(
           "border border-brand-amber/30 bg-brand-amber/10 text-brand-amber",
         danger:
           "border border-brand-rose/30 bg-brand-rose/10 text-brand-rose",
+        outline:
+          "border border-white/15 bg-transparent text-foreground/80",
       },
     },
     defaultVariants: { variant: "default" },
