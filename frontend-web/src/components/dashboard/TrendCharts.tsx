@@ -14,6 +14,7 @@ import {
   Cell,
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 interface TrendData {
   timestamp: string;
@@ -29,7 +30,17 @@ interface TrendChartsProps {
 }
 
 export function TrendCharts({ data }: TrendChartsProps) {
-  if (!data || data.length === 0) return null;
+  if (!data || data.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <p className="text-sm text-muted-foreground">
+            No trends yet. Submit check-ins to unlock your 7-day behavioral charts.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   // Format dates for display
   const chartData = data.map(d => ({
@@ -37,12 +48,43 @@ export function TrendCharts({ data }: TrendChartsProps) {
     displayDate: new Date(d.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' }),
   })).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
+  const latest = chartData[chartData.length - 1];
+  const latestRiskLevel = latest?.risk_level ?? "LOW";
+  const latestRisk = latest?.risk_score ?? 0;
+  const avgRisk = chartData.reduce((sum, row) => sum + (row.risk_score || 0), 0) / chartData.length;
+  const firstRisk = chartData[0]?.risk_score ?? latestRisk;
+  const delta = latestRisk - firstRisk;
+  const trendDirection = delta > 0.05 ? "Worsening" : delta < -0.05 ? "Improving" : "Stable";
+  const remarkVariant = latestRiskLevel === "HIGH" ? "danger" : latestRiskLevel === "MEDIUM" ? "warning" : "success";
+  const remarkText =
+    latestRiskLevel === "HIGH"
+      ? "Risk is elevated. Prioritize rest, support, and follow recommendations promptly."
+      : latestRiskLevel === "MEDIUM"
+        ? "Moderate risk detected. Small consistent interventions can stabilize trajectory."
+        : "Low risk currently. Keep routines steady to preserve momentum.";
+
   return (
-    <div className="grid gap-6 md:grid-cols-2">
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={remarkVariant}>
+              {latestRiskLevel} risk
+            </Badge>
+            <span className="text-sm text-muted-foreground">
+              Latest {(latestRisk * 100).toFixed(0)}% · Avg {(avgRisk * 100).toFixed(0)}% · {trendDirection}
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">{remarkText}</p>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 md:grid-cols-2">
       {/* Mood Trend */}
       <Card className="col-span-1">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium">🎭 Mood Trend (1-10)</CardTitle>
+          <p className="text-xs text-muted-foreground">Higher is better. Look for sustained dips below 4.</p>
         </CardHeader>
         <CardContent>
           <div className="h-[200px] w-full">
@@ -85,6 +127,7 @@ export function TrendCharts({ data }: TrendChartsProps) {
       <Card className="col-span-1">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium">😴 Sleep Hours</CardTitle>
+          <p className="text-xs text-muted-foreground">Target band centers around 7–9 hours.</p>
         </CardHeader>
         <CardContent>
           <div className="h-[200px] w-full">
@@ -134,6 +177,7 @@ export function TrendCharts({ data }: TrendChartsProps) {
       <Card className="col-span-1">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium">🤝 Social Contact</CardTitle>
+          <p className="text-xs text-muted-foreground">Frequent isolation can raise risk quickly.</p>
         </CardHeader>
         <CardContent>
           <div className="h-[200px] w-full">
@@ -176,6 +220,7 @@ export function TrendCharts({ data }: TrendChartsProps) {
       <Card className="col-span-1">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium">⚡ Risk Intensity</CardTitle>
+          <p className="text-xs text-muted-foreground">Thresholds: Low &lt; 35%, Medium 35–65%, High &gt; 65%.</p>
         </CardHeader>
         <CardContent>
           <div className="h-[200px] w-full">
@@ -214,6 +259,7 @@ export function TrendCharts({ data }: TrendChartsProps) {
           </div>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

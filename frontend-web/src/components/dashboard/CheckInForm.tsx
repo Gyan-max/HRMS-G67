@@ -7,35 +7,65 @@ import { Textarea } from "../ui/textarea";
 import { Badge } from "../ui/badge";
 import { Loader2, AlertCircle } from "lucide-react";
 
-export function CheckInForm({ onSubmissionSuccess }: { onSubmissionSuccess?: () => void }) {
-  const [userId, setUserId] = useState("user_001");
+interface CheckInFormProps {
+  userId: string;
+  onUserIdChange: (nextUserId: string) => void;
+  apiBaseUrl: string;
+  onSubmissionSuccess?: () => void;
+}
+
+interface CheckInResult {
+  risk_level: "LOW" | "MEDIUM" | "HIGH";
+  recommendation: string;
+  days_tracked: number;
+  safety_override: boolean;
+  risk_score: number;
+  anomaly_detected: boolean;
+  dominant_factor?: string;
+  nlp_analysis?: {
+    sentiment_label?: string;
+  };
+}
+
+export function CheckInForm({
+  userId,
+  onUserIdChange,
+  apiBaseUrl,
+  onSubmissionSuccess,
+}: CheckInFormProps) {
   const [sleepHours, setSleepHours] = useState([7]);
   const [moodScore, setMoodScore] = useState([6]);
   const [activityLevel, setActivityLevel] = useState("moderate");
   const [socialInteractions, setSocialInteractions] = useState("3");
   const [journalText, setJournalText] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<CheckInResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const normalizedUserId = userId.trim();
+    if (!normalizedUserId) {
+      setError("User ID is required.");
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
     setResult(null);
 
     try {
-      const response = await fetch("http://localhost:8000/api/checkin", {
+      const response = await fetch(`${apiBaseUrl}/api/checkin`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          user_id: userId,
+          user_id: normalizedUserId,
           sleep_hours: sleepHours[0],
           mood_score: moodScore[0],
           activity_level: activityLevel,
-          social_interactions: parseInt(socialInteractions),
+          social_interactions: parseInt(socialInteractions, 10),
           journal_text: journalText || null,
         }),
       });
@@ -47,8 +77,9 @@ export function CheckInForm({ onSubmissionSuccess }: { onSubmissionSuccess?: () 
       const data = await response.json();
       setResult(data);
       if (onSubmissionSuccess) onSubmissionSuccess();
-    } catch (err: any) {
-      setError(err.message || "Failed to submit check-in");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to submit check-in";
+      setError(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -60,7 +91,8 @@ export function CheckInForm({ onSubmissionSuccess }: { onSubmissionSuccess?: () 
         <CardHeader>
           <CardTitle>Daily Check-in</CardTitle>
           <CardDescription>
-            How are you feeling today? Your data helps Sentinel identify early signals.
+            How are you feeling today? Your data helps Sentinel identify early
+            signals.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -71,10 +103,13 @@ export function CheckInForm({ onSubmissionSuccess }: { onSubmissionSuccess?: () 
                 <Input
                   id="user-id"
                   value={userId}
-                  onChange={(e) => setUserId(e.target.value)}
+                  onChange={(e) => onUserIdChange(e.target.value)}
                   placeholder="user_001"
                   required
                 />
+                <p className="text-xs text-muted-foreground">
+                  This keeps your insights isolated from other users.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="activity">Activity Level</Label>
@@ -89,6 +124,9 @@ export function CheckInForm({ onSubmissionSuccess }: { onSubmissionSuccess?: () 
                   <option value="moderate">Moderate</option>
                   <option value="active">Active</option>
                 </select>
+                <p className="text-xs text-muted-foreground">
+                  Use the level that best represents your overall day.
+                </p>
               </div>
             </div>
 
@@ -107,6 +145,20 @@ export function CheckInForm({ onSubmissionSuccess }: { onSubmissionSuccess?: () 
                   max="12"
                   step="0.5"
                 />
+                <div className="flex flex-wrap gap-2">
+                  {[5, 7, 8, 9].map((v) => (
+                    <Button
+                      key={v}
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSleepHours([v])}
+                      className="h-7 px-2 text-[11px]"
+                    >
+                      {v}h
+                    </Button>
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -118,11 +170,25 @@ export function CheckInForm({ onSubmissionSuccess }: { onSubmissionSuccess?: () 
                   type="range"
                   className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-brand-indigo"
                   value={moodScore[0]}
-                  onChange={(e) => setMoodScore([parseInt(e.target.value)])}
+                  onChange={(e) => setMoodScore([parseInt(e.target.value, 10)])}
                   min="1"
                   max="10"
                   step="1"
                 />
+                <div className="flex flex-wrap gap-2">
+                  {[3, 5, 7, 9].map((v) => (
+                    <Button
+                      key={v}
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setMoodScore([v])}
+                      className="h-7 px-2 text-[11px]"
+                    >
+                      {v}/10
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -136,6 +202,9 @@ export function CheckInForm({ onSubmissionSuccess }: { onSubmissionSuccess?: () 
                 min="0"
                 max="50"
               />
+              <p className="text-xs text-muted-foreground">
+                Count meaningful interactions, not just brief messages.
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -147,6 +216,9 @@ export function CheckInForm({ onSubmissionSuccess }: { onSubmissionSuccess?: () 
                 onChange={(e) => setJournalText(e.target.value)}
                 rows={4}
               />
+              <p className="text-xs text-muted-foreground">
+                Optional, but journal text improves context and recommendations.
+              </p>
             </div>
 
             <Button type="submit" className="w-full" disabled={isSubmitting}>
