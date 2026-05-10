@@ -78,3 +78,13 @@ transformers_cache/
 
 # Local model artefacts the developer might dump (keep committed pkls visible)
 # models/*.pkl  # uncomment if you switch to Git LFS
+
+# Node / Vite (frontend-web)
+node_modules/
+.vite/
+.eslintcache
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
