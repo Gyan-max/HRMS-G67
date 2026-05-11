@@ -1,246 +1,147 @@
-# 🧠 AI-Based Micro Behavioral Health Risk Monitoring System
+# Sentinel — Behavioral Health Risk Monitor
 
-An intelligent system that monitors subtle daily behavioral signals (sleep, mood, activity, social interactions, journal text) and uses AI/ML to detect early signs of mental health risks like depression, anxiety, and burnout. Outputs a risk score (LOW / MEDIUM / HIGH) with explanations.
+Behavioral Health Risk Monitor ("Sentinel") is an AI-powered research prototype that ingests short daily check-ins (sleep, mood, activity, social interactions, free-text journal) and produces an explainable risk assessment (LOW / MEDIUM / HIGH). The system combines engineered behavioral features, transformer-based NLP, anomaly detection, and a rule-based weighted scorer with an optional ML classifier blend.
 
----
-
-## 📐 Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    STREAMLIT DASHBOARD (Port 8501)              │
-│  ┌──────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
-│  │ Check-In │  │  7-Day Trend │  │    History & Export       │  │
-│  │   Form   │  │    Charts    │  │      (Plotly/CSV)         │  │
-│  └────┬─────┘  └──────┬───────┘  └────────────┬─────────────┘  │
-│       │               │                        │                │
-└───────┼───────────────┼────────────────────────┼────────────────┘
-        │ HTTP/JSON     │ GET                    │ GET
-        ▼               ▼                        ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    FASTAPI BACKEND (Port 8000)                  │
-│                                                                 │
-│  POST /api/checkin ─────────────┐                               │
-│                                 ▼                               │
-│  ┌──────────────┐  ┌───────────────────┐  ┌──────────────────┐ │
-│  │    Data       │  │    Feature        │  │   NLP Analyzer   │ │
-│  │  Ingestion    │  │  Engineering      │  │  (DistilBERT)    │ │
-│  │  (SQLAlchemy) │  │  (15+ features)   │  │  + Linguistics   │ │
-│  └──────┬───────┘  └────────┬──────────┘  └────────┬─────────┘ │
-│         │                   │                       │           │
-│         ▼                   ▼                       ▼           │
-│  ┌──────────────┐  ┌───────────────────┐  ┌──────────────────┐ │
-│  │   SQLite DB   │  │ Anomaly Detector │  │ Risk Classifier  │ │
-│  │  (SQLAlchemy)  │  │ (IsolationForest)│  │   (XGBoost)     │ │
-│  └───────────────┘  └────────┬─────────┘  └────────┬─────────┘ │
-│                              │                      │           │
-│                              ▼                      ▼           │
-│                     ┌──────────────────────────────────┐        │
-│                     │     Risk Scoring Engine           │        │
-│                     │  (Weighted: NLP 30% | Anomaly 25%│        │
-│                     │   Sleep 18% | Mood 17% | Social  │        │
-│                     │   10%) + Recommendations          │        │
-│                     └──────────────────────────────────┘        │
-└─────────────────────────────────────────────────────────────────┘
-```
+This README documents how the repository is organized, how to run the system locally, and what each core component does.
 
 ---
 
-## 🛠️ Tech Stack
+**Quick links**
 
-| Component          | Technology                                        |
-|--------------------|---------------------------------------------------|
-| Backend            | FastAPI + Uvicorn                                 |
-| ML/AI              | scikit-learn, XGBoost, HuggingFace Transformers   |
-| NLP Model          | distilbert-base-uncased-finetuned-sst-2-english   |
-| Anomaly Detection  | Isolation Forest (scikit-learn)                   |
-| Risk Classification| XGBoost Classifier                                |
-| Frontend (legacy)  | Streamlit + Plotly (live dashboard)               |
-| Frontend (new)     | React 19 + Vite + TypeScript + Tailwind + shadcn  |
-| Data Storage       | SQLite via SQLAlchemy                             |
-| Language           | Python 3.10+ · TypeScript 5+                      |
+- Backend API: http://localhost:8000/docs
+- Streamlit dashboard: http://localhost:8501
+- React dev server (frontend-web): http://localhost:5173
 
 ---
 
-## 📁 Project Structure
+**What this repo contains (high level)**
 
-```
-behavioral-health-monitor/
-├── backend/
-│   ├── main.py                    # FastAPI app with all routes
-│   ├── database.py                # SQLAlchemy models + SQLite setup
-│   ├── data_ingestion.py          # Check-in logging + retrieval
-│   ├── feature_engineering.py     # Feature extraction (15+ features)
-│   ├── nlp_analyzer.py            # DistilBERT sentiment + linguistics
-│   ├── anomaly_detector.py        # Isolation Forest anomaly detection
-│   ├── risk_classifier.py         # XGBoost risk classification
-│   ├── risk_engine.py             # Weighted risk scoring + recommendations
-│   └── schemas.py                 # Pydantic request/response models
-├── frontend/
-│   └── dashboard.py               # Streamlit dashboard with Plotly charts (legacy)
-├── frontend-web/                  # React + Vite + Tailwind landing experience (new)
-│   ├── src/                       # Pages, layout, UI primitives, design tokens
-│   ├── package.json
-│   └── README.md                  # Frontend-specific setup + deploy notes
-├── data/
-│   ├── generate_synthetic_data.py # Synthetic training data generator
-│   └── synthetic_training_data.csv # Generated training data (500 samples)
-├── models/                        # Saved ML model files (.pkl)
-├── requirements.txt               # Python dependencies
-├── run.sh                         # Launch script (backend + frontend)
-└── README.md                      # This file
-```
+- A FastAPI backend that implements the check-in API, orchestrates the ML/NLP pipeline, persists check-ins in SQLite, and exposes analytics endpoints.
+- A Streamlit dashboard (legacy) for submitting check-ins and seeing trends.
+- A React + Vite frontend skeleton in `frontend-web/` for landing pages and future UI migration.
+- Lightweight in-repo ML code: feature engineering, a DistilBERT-based NLP analyzer, an Isolation Forest anomaly detector, an XGBoost classifier, and a rule-based `RiskScoringEngine` that combines signals into a final score.
+- Utilities to generate synthetic training data so the system can run out-of-the-box.
 
 ---
 
-## 🚀 Quick Start
+**Status & Notes**
 
-### 1. Clone the Repository
+- The backend is the primary, production-intent component. On startup it initialises all ML components and will train lightweight models on synthetic data if pre-trained artifacts are not present.
+- The Streamlit dashboard provides a usable demo UI. The modern React UI in `frontend-web/` is focused on marketing/landing pages and is not yet a full replacement for the dashboard.
+
+---
+
+**Requirements**
+
+Install system requirements from `requirements.txt` (Python 3.10+ recommended). HuggingFace `transformers` and `torch` are required for the NLP analyzer; they can increase setup time and disk usage.
+
+---
+
+## Quickstart (local)
+
+1. Clone and enter the repo
 
 ```bash
-git clone <repository-url>
+git clone <repo-url>
 cd behavioral-health-monitor
 ```
 
-### 2. Create Virtual Environment (Recommended)
+2. (Recommended) Create and activate a virtual environment
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or: venv\Scripts\activate  # Windows
+source venv/bin/activate
 ```
 
-### 3. Install Dependencies
+3. Install Python dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Generate Synthetic Training Data & Train Models
-
-```bash
-python data/generate_synthetic_data.py
-```
-
-This will:
-- Generate 500 labeled behavioral samples (150 LOW, 200 MEDIUM, 150 HIGH)
-- Train the Isolation Forest anomaly detector
-- Train the XGBoost risk classifier
-- Save models to the `models/` directory
-
-### 5. Launch the System
+4. Run the full demo (this will generate synthetic training data if missing)
 
 ```bash
 bash run.sh
 ```
 
-Or start components individually:
+Alternative: run components separately
 
 ```bash
-# Terminal 1: Backend
+# Backend (FastAPI)
 cd backend && uvicorn main:app --reload --port 8000
 
-# Terminal 2: Frontend (legacy Streamlit dashboard)
+# Streamlit dashboard (legacy)
 cd frontend && streamlit run dashboard.py --server.port 8501
 
-# Terminal 3 (optional): React landing pages (Vite dev server, port 5173)
+# React dev server (frontend-web)
 cd frontend-web && npm install && npm run dev
 ```
 
-### 6. Access the Application
-
-- **React landing pages** (PR A): http://localhost:5173
-- **Streamlit dashboard** (live check-ins, trends, history): http://localhost:8501
-- **API Docs**: http://localhost:8000/docs
-- **Health Check**: http://localhost:8000/health
-
-> The new React frontend (`frontend-web/`) currently hosts the
-> branded landing pages (Home / About / Solution / Resources). The
-> Streamlit dashboard remains the source of truth for live check-ins
-> until PR B ports the dashboard over. See
-> [`frontend-web/README.md`](frontend-web/README.md) for setup and
-> Vercel deploy instructions.
+Open the API docs at `http://localhost:8000/docs` and the dashboard at `http://localhost:8501`.
 
 ---
 
-## 📡 API Endpoints
+## Core components (implementation details)
 
-| Method | Endpoint                  | Description                          |
-|--------|---------------------------|--------------------------------------|
-| POST   | `/api/checkin`            | Submit daily check-in + get risk     |
-| GET    | `/api/history/{user_id}`  | Get check-in history (query: days)   |
-| GET    | `/api/stats/{user_id}`    | Get aggregate user statistics        |
-| GET    | `/api/risk-trend/{user_id}` | Get risk score time-series         |
-| DELETE | `/api/user/{user_id}`     | Delete all user data (GDPR)          |
-| GET    | `/health`                 | System health check                  |
+- `backend/main.py`: FastAPI app that orchestrates the pipeline and exposes endpoints (`/api/checkin`, `/api/history/{user_id}`, `/api/stats/{user_id}`, `/api/risk-trend/{user_id}`, `/health`). On startup it initialises `MentalHealthNLPAnalyzer`, `BehavioralAnomalyDetector`, `RiskClassifier`, and `RiskScoringEngine`.
+- `backend/feature_engineering.py`: Extracts 15+ behavioral features from recent check-in history (sleep, mood, social, activity, composites).
+- `backend/nlp_analyzer.py`: DistilBERT sentiment pipeline plus linguistic markers (first-person ratio, absolutist words, negative-emotion words) and a composite `nlp_risk_score`.
+- `backend/anomaly_detector.py`: Isolation Forest based behavioral anomaly detection (normalised anomaly risk output).
+- `backend/risk_classifier.py`: Lightweight XGBoost risk classifier used when trained artifacts are available (blended with the rule-based score).
+- `backend/risk_engine.py`: Rule-based weighted scorer (NLP 30%, Anomaly 25%, Sleep 18%, Mood 17%, Social 10%) with weight re-normalisation when components are unavailable and a safety override path.
+- `backend/data_ingestion.py` and `backend/database.py`: SQLAlchemy models and helpers to persist and retrieve check-ins as DataFrames for the ML pipeline.
 
-### Example Check-In Request
+---
 
-```bash
-curl -X POST http://localhost:8000/api/checkin \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "user_001",
-    "sleep_hours": 4.5,
-    "mood_score": 3,
-    "activity_level": "sedentary",
-    "social_interactions": 0,
-    "journal_text": "I feel hopeless and exhausted. Nothing matters anymore."
-  }'
+## API — example
+
+POST `/api/checkin` accepts JSON payloads like:
+
+```json
+{
+	"user_id": "user_001",
+	"sleep_hours": 5.5,
+	"mood_score": 3,
+	"activity_level": "sedentary",
+	"social_interactions": 0,
+	"journal_text": "I feel exhausted and hopeless today."
+}
 ```
 
----
+Response includes `risk_level`, `risk_score`, `component_scores`, `recommendation`, `nlp_analysis`, and a `safety_override` flag when safety phrases are detected.
 
-## 🧪 Demo Mode
-
-Click the **🎬 Demo Mode (High Risk)** button in the sidebar to instantly submit a pre-configured high-risk check-in. This demonstrates the full ML pipeline with a clearly concerning scenario.
+For interactive testing, use the OpenAPI docs at `/docs` or the Streamlit dashboard demo UI.
 
 ---
 
-## 🤖 ML Pipeline Details
+## Data & Models
 
-### Feature Engineering (15+ Features)
-
-| Category  | Features                                                      |
-|-----------|---------------------------------------------------------------|
-| Sleep     | avg_sleep, sleep_variance, sleep_trend, sleep_deficit_days    |
-| Mood      | avg_mood, mood_trend, mood_volatility, lowest_mood            |
-| Social    | avg_social, social_trend, isolation_days                      |
-| Activity  | avg_activity_score, activity_trend, sedentary_days            |
-| Composite | sleep_mood_correlation, behavioral_consistency_score          |
-
-### NLP Analysis Features
-
-- **Transformer Sentiment**: DistilBERT fine-tuned for sentiment classification
-- **First-Person Ratio**: Elevated I/me/my usage (depression marker)
-- **Absolutist Ratio**: Never/always/nothing usage (clinical marker)
-- **Negative Emotion Words**: Depression/anxiety vocabulary frequency
-
-### Risk Scoring Weights
-
-| Component | Weight | Signal Source                  |
-|-----------|--------|-------------------------------|
-| NLP       | 30%    | Journal text sentiment + linguistics |
-| Anomaly   | 25%    | Behavioral pattern deviation  |
-| Sleep     | 18%    | Sleep quality and consistency |
-| Mood      | 17%    | Mood level and trend          |
-| Social    | 10%    | Social engagement patterns    |
+- `data/generate_synthetic_data.py` can create a small synthetic dataset and train the in-repo models so the system runs without external artifacts.
+- Trained model artifacts (when produced) are stored under `models/`.
 
 ---
 
-## ⚠️ Disclaimer
+## Safety & Disclaimer
 
-**This tool is for educational and research purposes only.** It is NOT a clinical diagnostic tool. It does not provide medical advice, diagnosis, or treatment. If you are in crisis or experiencing a mental health emergency, please contact a mental health professional or call your local emergency services immediately.
+This repository is a research prototype and not a medical device. It is intended for educational and development purposes only and must not be used as a substitute for professional diagnosis or emergency services.
 
-**Crisis Resources:**
-- 🇺🇸 988 Suicide & Crisis Lifeline: Call or text **988**
-- 🇺🇸 Crisis Text Line: Text **HOME** to **741741**
-- 🇬🇧 Samaritans: Call **116 123**
-- 🇮🇳 iCall: Call **9152987821**
+If you or someone you know is in immediate danger, contact local emergency services or crisis resources in your region (for example: 988 in the US).
 
 ---
 
-## 📄 License
+## Contributing
 
-This project is developed for academic/educational purposes as a capstone project.
-# HRMS-G67
+Contributions are welcome. Suggested next work items:
+
+- Add end-to-end tests for the API + model blending behaviour
+- Port the Streamlit dashboard into the React app for a single consolidated frontend
+- Add CI that runs unit tests and optionally trains on tiny synthetic data
+
+---
+
+## License & Acknowledgements
+
+Academic/research use. See project authors for reuse permissions.
+
+Sentinel — HRMS-G67
