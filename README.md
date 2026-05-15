@@ -1,4 +1,4 @@
-# Sentinel — Behavioral Health Risk Monitor
+# Sentinel — AI-Powered Behavioral Health Risk Monitor
 
 Behavioral Health Risk Monitor ("Sentinel") is an AI-powered research prototype that ingests short daily check-ins (sleep, mood, activity, social interactions, free-text journal) and produces an explainable risk assessment (LOW / MEDIUM / HIGH). The system combines engineered behavioral features, transformer-based NLP, anomaly detection, and a rule-based weighted scorer with an optional ML classifier blend.
 
