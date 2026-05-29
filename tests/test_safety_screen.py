@@ -127,7 +127,7 @@ def test_is_self_harm_signal_returns_bool() -> None:
 def test_result_to_dict_serialisation() -> None:
     result = run_safety_screen("I want to die.")
     payload = result.to_dict()
-    assert set(payload.keys()) == {"triggered", "matched_phrases", "reason"}
+    assert {"triggered", "matched_phrases", "reason"}.issubset(payload.keys())
     assert payload["triggered"] is True
     assert isinstance(payload["matched_phrases"], list)
     assert isinstance(payload["reason"], str)

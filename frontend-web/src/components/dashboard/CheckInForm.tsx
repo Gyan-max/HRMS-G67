@@ -14,6 +14,14 @@ interface CheckInFormProps {
   onSubmissionSuccess?: () => void;
 }
 
+interface ComponentScores {
+  sleep: number;
+  mood: number;
+  social: number;
+  nlp: number;
+  anomaly: number;
+}
+
 interface CheckInResult {
   risk_level: "LOW" | "MEDIUM" | "HIGH";
   recommendation: string;
@@ -22,9 +30,24 @@ interface CheckInResult {
   risk_score: number;
   anomaly_detected: boolean;
   dominant_factor?: string;
+  component_scores: ComponentScores;
   nlp_analysis?: {
     sentiment_label?: string;
   };
+}
+
+const COMPONENT_LABELS: Record<keyof ComponentScores, string> = {
+  sleep: "Sleep",
+  mood: "Mood",
+  social: "Social",
+  nlp: "Journal",
+  anomaly: "Anomaly",
+};
+
+function scoreColor(val: number): string {
+  if (val >= 0.65) return "#ff4444";
+  if (val >= 0.35) return "#ffaa00";
+  return "#00cc66";
 }
 
 export function CheckInForm({
@@ -33,8 +56,8 @@ export function CheckInForm({
   apiBaseUrl,
   onSubmissionSuccess,
 }: CheckInFormProps) {
-  const [sleepHours, setSleepHours] = useState([7]);
-  const [moodScore, setMoodScore] = useState([6]);
+  const [sleepHours, setSleepHours] = useState(7);
+  const [moodScore, setMoodScore] = useState(6);
   const [activityLevel, setActivityLevel] = useState("moderate");
   const [socialInteractions, setSocialInteractions] = useState("3");
   const [journalText, setJournalText] = useState("");
@@ -62,8 +85,8 @@ export function CheckInForm({
         },
         body: JSON.stringify({
           user_id: normalizedUserId,
-          sleep_hours: sleepHours[0],
-          mood_score: moodScore[0],
+          sleep_hours: sleepHours,
+          mood_score: moodScore,
           activity_level: activityLevel,
           social_interactions: parseInt(socialInteractions, 10),
           journal_text: journalText || null,
@@ -134,13 +157,13 @@ export function CheckInForm({
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <Label>Sleep Hours</Label>
-                  <span className="text-sm font-medium text-muted-foreground">{sleepHours[0]}h</span>
+                  <span className="text-sm font-medium text-muted-foreground">{sleepHours}h</span>
                 </div>
                 <input
                   type="range"
                   className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-brand-cyan"
-                  value={sleepHours[0]}
-                  onChange={(e) => setSleepHours([parseFloat(e.target.value)])}
+                  value={sleepHours}
+                  onChange={(e) => setSleepHours(parseFloat(e.target.value))}
                   min="0"
                   max="12"
                   step="0.5"
@@ -152,7 +175,7 @@ export function CheckInForm({
                       type="button"
                       size="sm"
                       variant="ghost"
-                      onClick={() => setSleepHours([v])}
+                      onClick={() => setSleepHours(v)}
                       className="h-7 px-2 text-[11px]"
                     >
                       {v}h
@@ -164,13 +187,13 @@ export function CheckInForm({
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <Label>Mood Score (1-10)</Label>
-                  <span className="text-sm font-medium text-muted-foreground">{moodScore[0]}</span>
+                  <span className="text-sm font-medium text-muted-foreground">{moodScore}</span>
                 </div>
                 <input
                   type="range"
                   className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-brand-indigo"
-                  value={moodScore[0]}
-                  onChange={(e) => setMoodScore([parseInt(e.target.value, 10)])}
+                  value={moodScore}
+                  onChange={(e) => setMoodScore(parseInt(e.target.value, 10))}
                   min="1"
                   max="10"
                   step="1"
@@ -182,7 +205,7 @@ export function CheckInForm({
                       type="button"
                       size="sm"
                       variant="ghost"
-                      onClick={() => setMoodScore([v])}
+                      onClick={() => setMoodScore(v)}
                       className="h-7 px-2 text-[11px]"
                     >
                       {v}/10
@@ -246,14 +269,14 @@ export function CheckInForm({
 
       {result && (
         <Card className={`border-2 ${
-          result.risk_level === 'HIGH' ? 'border-brand-rose' : 
+          result.risk_level === 'HIGH' ? 'border-brand-rose' :
           result.risk_level === 'MEDIUM' ? 'border-brand-amber' : 'border-brand-teal'
         }`}>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               Risk Assessment
               <Badge className={
-                result.risk_level === 'HIGH' ? 'bg-brand-rose' : 
+                result.risk_level === 'HIGH' ? 'bg-brand-rose' :
                 result.risk_level === 'MEDIUM' ? 'bg-brand-amber' : 'bg-brand-teal'
               }>
                 {result.risk_level} Risk
@@ -266,7 +289,7 @@ export function CheckInForm({
           <CardContent className="space-y-4">
             <div className="rounded-lg bg-muted p-4">
               <p className="text-sm italic leading-relaxed">
-                "{result.recommendation}"
+                &ldquo;{result.recommendation}&rdquo;
               </p>
             </div>
 
@@ -277,12 +300,13 @@ export function CheckInForm({
                   Safety Notice
                 </div>
                 <p className="text-xs text-brand-rose/90">
-                  Our NLP system detected phrases associated with self-harm or crisis. 
+                  Our NLP system detected phrases associated with self-harm or crisis.
                   Please use the crisis resources listed in the sidebar or footer immediately.
                 </p>
               </div>
             )}
 
+            {/* Summary row */}
             <div className="grid gap-4 grid-cols-2 text-center sm:grid-cols-4">
               <div>
                 <div className="text-xs text-muted-foreground uppercase font-semibold">Risk Score</div>
@@ -298,9 +322,40 @@ export function CheckInForm({
               </div>
               <div>
                 <div className="text-xs text-muted-foreground uppercase font-semibold">Dominant</div>
-                <div className="text-xl font-bold truncate">{result.dominant_factor || "None"}</div>
+                <div className="text-xl font-bold truncate capitalize">{result.dominant_factor || "None"}</div>
               </div>
             </div>
+
+            {/* Component score breakdown */}
+            {result.component_scores && (
+              <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Component Breakdown
+                </p>
+                {(Object.keys(COMPONENT_LABELS) as Array<keyof ComponentScores>).map((key) => {
+                  const val = result.component_scores[key] ?? 0;
+                  return (
+                    <div key={key} className="flex items-center gap-3">
+                      <span className="w-14 text-xs text-muted-foreground">
+                        {COMPONENT_LABELS[key]}
+                      </span>
+                      <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${(val * 100).toFixed(0)}%`,
+                            backgroundColor: scoreColor(val),
+                          }}
+                        />
+                      </div>
+                      <span className="w-9 text-right text-xs font-medium tabular-nums">
+                        {(val * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

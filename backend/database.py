@@ -11,7 +11,7 @@ Tables:
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -70,7 +70,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(64), unique=True, nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     baseline_established = Column(Boolean, default=False)
 
     def __repr__(self) -> str:
@@ -97,7 +97,7 @@ class CheckIn(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(64), nullable=False, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     sleep_hours = Column(Float, nullable=False)
     mood_score = Column(Integer, nullable=False)
     activity_level = Column(String(20), nullable=False)

@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Download } from "lucide-react";
+import { Download, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface HistoryRecord {
   timestamp: string;
@@ -18,137 +19,226 @@ interface HistoryLogProps {
   userId: string;
 }
 
+function riskBorderClass(level: string) {
+  if (level === "HIGH")   return "border-l-brand-rose";
+  if (level === "MEDIUM") return "border-l-brand-amber";
+  return "border-l-brand-emerald";
+}
+
+function riskBarColor(level: string) {
+  if (level === "HIGH")   return "bg-brand-rose";
+  if (level === "MEDIUM") return "bg-brand-amber";
+  return "bg-brand-emerald";
+}
+
+function badgeVariant(level: string): "danger" | "warning" | "success" {
+  if (level === "HIGH")   return "danger";
+  if (level === "MEDIUM") return "warning";
+  return "success";
+}
+
+function escapeCSV(val: unknown): string {
+  const str = String(val ?? "");
+  return str.includes(",") || str.includes('"') || str.includes("\n")
+    ? `"${str.replace(/"/g, '""')}"`
+    : str;
+}
+
 export function HistoryLog({ records, userId }: HistoryLogProps) {
   const downloadCSV = () => {
     if (!records.length) return;
-    
-    const headers = ["Timestamp", "Sleep", "Mood", "Activity", "Social", "Risk Score", "Risk Level"];
-    const rows = records.map(r => [
+    const headers = ["Timestamp", "Sleep (h)", "Mood", "Activity", "Social", "Risk Score", "Risk Level"];
+    const rows = records.map((r) => [
       new Date(r.timestamp).toLocaleString(),
       r.sleep_hours,
       r.mood_score,
       r.activity_level,
       r.social_interactions,
       r.risk_score,
-      r.risk_level
+      r.risk_level,
     ]);
-    
-    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
+    const csv = [headers, ...rows].map((row) => row.map(escapeCSV).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `sentinel_history_${userId}_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `sentinel_history_${userId}_${new Date().toISOString().split("T")[0]}.csv`;
+    a.style.visibility = "hidden";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
+
+  const empty = records.length === 0;
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-4">
         <div>
           <CardTitle>History Log</CardTitle>
-          <p className="text-sm text-muted-foreground mt-1">
-            Your check-ins from the last 30 days for <span className="font-semibold text-foreground">{userId}</span>.
+          <p className="mt-1 text-sm text-muted-foreground">
+            30-day record for{" "}
+            <span className="font-semibold text-foreground">{userId}</span>.
           </p>
         </div>
-        <Button variant="secondary" size="sm" onClick={downloadCSV} disabled={!records.length}>
-          <Download className="mr-2 h-4 w-4" />
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={downloadCSV}
+          disabled={empty}
+          className="shrink-0"
+        >
+          <Download className="mr-1.5 h-3.5 w-3.5" />
           Export CSV
         </Button>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-3 md:hidden">
-          {records.length === 0 ? (
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-center text-sm text-muted-foreground">
-              No check-in history found.
-            </div>
-          ) : (
-            records.slice(0, 12).map((record, i) => (
-              <div key={i} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold">
-                      {new Date(record.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(record.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                  </div>
-                  <Badge variant={
-                    record.risk_level === 'HIGH' ? 'danger' :
-                    record.risk_level === 'MEDIUM' ? 'warning' : 'success'
-                  }>
-                    {record.risk_level}
-                  </Badge>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="rounded-md bg-white/[0.04] p-2">
-                    <p className="text-muted-foreground">Mood</p>
-                    <p className="font-semibold">{record.mood_score}/10</p>
-                  </div>
-                  <div className="rounded-md bg-white/[0.04] p-2">
-                    <p className="text-muted-foreground">Sleep</p>
-                    <p className="font-semibold">{record.sleep_hours}h</p>
-                  </div>
-                  <div className="rounded-md bg-white/[0.04] p-2">
-                    <p className="text-muted-foreground">Social</p>
-                    <p className="font-semibold">{record.social_interactions}</p>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
 
-        <div className="relative hidden w-full overflow-auto md:block">
-          <table className="w-full caption-bottom text-sm">
-            <thead className="[&_tr]:border-b border-white/10">
-              <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-                <th className="h-10 px-2 text-left align-middle font-medium text-muted-foreground">Date</th>
-                <th className="h-10 px-2 text-center align-middle font-medium text-muted-foreground">Mood</th>
-                <th className="h-10 px-2 text-center align-middle font-medium text-muted-foreground">Sleep</th>
-                <th className="h-10 px-2 text-center align-middle font-medium text-muted-foreground">Social</th>
-                <th className="h-10 px-2 text-right align-middle font-medium text-muted-foreground">Assessment</th>
-              </tr>
-            </thead>
-            <tbody className="[&_tr:last-child]:border-0">
-              {records.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="p-8 text-center text-muted-foreground">
-                    No check-in history found.
-                  </td>
-                </tr>
-              ) : (
-                records.map((record, i) => (
-                  <tr key={i} className="border-b border-white/5 transition-colors hover:bg-white/[0.02]">
-                    <td className="p-2 align-middle">
-                      <div className="font-medium">
-                        {new Date(record.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+      <CardContent>
+        {empty ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+            <ClipboardList className="h-8 w-8 text-muted-foreground/30" />
+            <p className="text-sm text-muted-foreground">
+              No check-in history yet. Submit your first check-in above.
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* ── Mobile cards ── */}
+            <div className="space-y-2 md:hidden">
+              {records.slice(0, 14).map((record, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "rounded-xl border border-white/10 bg-white/[0.025] p-4",
+                    "border-l-2",
+                    riskBorderClass(record.risk_level),
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold">
+                        {new Date(record.timestamp).toLocaleDateString([], {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(record.timestamp).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                    <Badge variant={badgeVariant(record.risk_level)}>
+                      {record.risk_level}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
+                    {[
+                      { label: "Mood",   value: `${record.mood_score}/10` },
+                      { label: "Sleep",  value: `${record.sleep_hours}h` },
+                      { label: "Social", value: `${record.social_interactions}` },
+                      { label: "Risk",   value: `${(record.risk_score * 100).toFixed(0)}%` },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="rounded-md bg-white/[0.04] p-2">
+                        <p className="text-muted-foreground">{label}</p>
+                        <p className="mt-0.5 font-semibold">{value}</p>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(record.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </td>
-                    <td className="p-2 text-center align-middle">{record.mood_score}/10</td>
-                    <td className="p-2 text-center align-middle">{record.sleep_hours}h</td>
-                    <td className="p-2 text-center align-middle">{record.social_interactions}</td>
-                    <td className="p-2 text-right align-middle">
-                      <Badge variant={
-                        record.risk_level === 'HIGH' ? 'danger' : 
-                        record.risk_level === 'MEDIUM' ? 'warning' : 'success'
-                      }>
-                        {record.risk_level}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {records.length > 14 && (
+                <p className="pt-2 text-center text-xs text-muted-foreground">
+                  Showing 14 of {records.length} — export CSV for the full set.
+                </p>
               )}
-            </tbody>
-          </table>
-        </div>
+            </div>
+
+            {/* ── Desktop table ── */}
+            <div className="relative hidden w-full overflow-auto md:block">
+              <table className="w-full caption-bottom text-sm">
+                <thead>
+                  <tr className="border-b border-white/8">
+                    {["Date", "Mood", "Sleep", "Social", "Activity", "Risk"].map((h) => (
+                      <th
+                        key={h}
+                        className={cn(
+                          "h-10 px-3 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground",
+                          h === "Date" ? "text-left" : "text-center",
+                          h === "Risk" && "text-right",
+                        )}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {records.map((record, i) => (
+                    <tr
+                      key={i}
+                      className="border-b border-white/[0.04] transition-colors hover:bg-white/[0.02]"
+                    >
+                      <td className="p-3 align-middle">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={cn(
+                              "h-7 w-1 rounded-full shrink-0",
+                              riskBarColor(record.risk_level),
+                              "opacity-60",
+                            )}
+                          />
+                          <div>
+                            <p className="text-sm font-medium">
+                              {new Date(record.timestamp).toLocaleDateString([], {
+                                month: "short",
+                                day: "numeric",
+                              })}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {new Date(record.timestamp).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3 text-center align-middle tabular-nums">
+                        {record.mood_score}/10
+                      </td>
+                      <td className="p-3 text-center align-middle tabular-nums">
+                        {record.sleep_hours}h
+                      </td>
+                      <td className="p-3 text-center align-middle tabular-nums">
+                        {record.social_interactions}
+                      </td>
+                      <td className="p-3 text-center align-middle capitalize text-muted-foreground">
+                        {record.activity_level}
+                      </td>
+                      <td className="p-3 text-right align-middle">
+                        <div className="inline-flex flex-col items-end gap-1">
+                          <Badge variant={badgeVariant(record.risk_level)}>
+                            {record.risk_level}
+                          </Badge>
+                          <div className="h-1 w-14 overflow-hidden rounded-full bg-white/[0.06]">
+                            <div
+                              className={cn("h-full rounded-full", riskBarColor(record.risk_level), "opacity-70")}
+                              style={{ width: `${(record.risk_score * 100).toFixed(0)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
